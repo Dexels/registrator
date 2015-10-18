@@ -30,21 +30,30 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 		config.Address = uri.Host
 	}
 	attributePrefix := uri.Query()["prefix"]
-
+  containerPrefix := uri.Query()["containerInfo"]
 	client, err := consulapi.NewClient(config)
 	if err != nil {
 		log.Fatal("consul: ", uri.Scheme)
 	}
-	if(len(attributePrefix)>0) {
-		return &ConsulAdapter{client: client, attributePrefix: attributePrefix[0]}
-	} else {
-		return &ConsulAdapter{client: client}
-
+	result := &ConsulAdapter{client: client}
+  if len(attributePrefix)>0 {
+		result.attributePrefix = attributePrefix[0]
 	}
+	if len(containerPrefix)>0 {
+		result.containerPrefix = containerPrefix[0]
+	}
+
+	return result
+	// if len(attributePrefix) > 0 {
+	// 	return &ConsulAdapter{client: client, attributePrefix: attributePrefix[0],containerPrefix: containerPrefix}
+	// } else {
+	// 	return &ConsulAdapter{client: client}
+	//
+	// }
 }
 
 type ConsulAdapter struct {
-	client        *consulapi.Client
+	client          *consulapi.Client
 	attributePrefix string
 	containerPrefix string
 }
@@ -70,54 +79,58 @@ func (r *ConsulAdapter) Register(service *bridge.Service) error {
 	registration.Address = service.IP
 	registration.Check = r.buildCheck(service)
 	if r.attributePrefix != "" {
-		insertServiceAttributes(r,service)
-  }
+		insertServiceAttributes(r, service)
+	}
+	log.Print("ContainerPrefix: %s",r.containerPrefix)
 	if r.containerPrefix != "" {
-		insertContainerAttributes(r,service)
+		insertContainerAttributes(r, service)
 	}
 	return r.client.Agent().ServiceRegister(registration)
 }
 
-func insertServiceAttributes(r *ConsulAdapter,service *bridge.Service) {
-		kv := r.client.KV()
-		for k, v := range service.Attrs {
-			pair := &consulapi.KVPair{Key: r.attributePrefix + "/" + service.ID + "/attributes/" + k, Value: []byte(v)}
-			_, err := kv.Put(pair, nil)
-			if err != nil {
-				panic(err)
-			}
-		}
-}
-
-func insertContainerAttributes(r *ConsulAdapter,service *bridge.Service) {
+func insertServiceAttributes(r *ConsulAdapter, service *bridge.Service) {
 	kv := r.client.KV()
-	if(service.Origin.ContainerID!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/ContainerID",[]byte(service.Origin.ContainerID))
-	}
-	if(service.Origin.ExposedIP!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/ExposedIP",[]byte(service.Origin.ExposedIP))
-	}
-	if(service.Origin.HostIP!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/HostIP",[]byte(service.Origin.HostIP))
-	}
-	if(service.Origin.HostPort!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/HostPort",[]byte(service.Origin.HostPort))
-	}
-	if(service.Origin.PortType!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/PortType",[]byte(service.Origin.PortType))
-	}
-	if(service.Origin.ContainerHostname!="") {
-		insertAttribute(kv,r.containerPrefix+"/" + service.ID+"/container/ContainerHostname",[]byte(service.Origin.ContainerHostname))
-	}
-
-}
-
-func insertAttribute(kv *consulapi.KV,key string, value []byte) {
-		pair := &consulapi.KVPair{Key: key, Value: value}
+	for k, v := range service.Attrs {
+		pair := &consulapi.KVPair{Key: r.attributePrefix + "/" + service.ID + "/" + k, Value: []byte(v)}
 		_, err := kv.Put(pair, nil)
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func insertContainerAttributes(r *ConsulAdapter, service *bridge.Service) {
+	kv := r.client.KV()
+
+	if service.Origin.ContainerID != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/ContainerID", []byte(service.Origin.ContainerID))
+	}
+	if service.Origin.ExposedIP != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/ExposedIP", []byte(service.Origin.ExposedIP))
+	}
+	if service.Origin.HostIP != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/HostIP", []byte(service.Origin.HostIP))
+	}
+	if service.Origin.HostPort != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/HostPort", []byte(service.Origin.HostPort))
+	}
+	if service.Origin.PortType != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/PortType", []byte(service.Origin.PortType))
+	}
+	if service.Origin.ContainerHostname != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/ContainerHostname", []byte(service.Origin.ContainerHostname))
+	}
+	if service.Origin.ExposedPort != "" {
+		insertAttribute(kv, r.containerPrefix+"/"+service.ID+"/ExposedPort", []byte(service.Origin.ExposedPort))
+	}
+}
+
+func insertAttribute(kv *consulapi.KV, key string, value []byte) {
+	pair := &consulapi.KVPair{Key: key, Value: value}
+	_, err := kv.Put(pair, nil)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (r *ConsulAdapter) buildCheck(service *bridge.Service) *consulapi.AgentServiceCheck {
@@ -149,7 +162,12 @@ func (r *ConsulAdapter) buildCheck(service *bridge.Service) *consulapi.AgentServ
 func (r *ConsulAdapter) Deregister(service *bridge.Service) error {
 	//	pair := &consulapi.KVPair{Key: "service_attribute" + "/" + service.Name + "/" + k, Value: []byte(v)}
 	success := r.client.Agent().ServiceDeregister(service.ID)
-	r.client.KV().DeleteTree("service_attribute"+"/attributes/"+service.ID, nil)
+	if r.attributePrefix!="" {
+		r.client.KV().DeleteTree(r.attributePrefix +"/"+service.ID, nil)
+	}
+	if r.containerPrefix!="" {
+		r.client.KV().DeleteTree(r.containerPrefix +"/"+service.ID, nil)
+	}
 	return success
 }
 
