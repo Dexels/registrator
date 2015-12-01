@@ -1,4 +1,4 @@
-NAME=registrator
+NAME=docker-registry.sportlink.com/registrator
 VERSION=$(shell cat VERSION)
 DEV_RUN_OPTS ?= consul:
 

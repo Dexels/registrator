@@ -177,8 +177,8 @@ func (b *Bridge) add(containerId string, quiet bool) {
 func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 	container := port.container
 	defaultName := strings.Split(path.Base(container.Config.Image), ":")[0]
-	
 	// not sure about this logic. kind of want to remove it.
+  log.Println("HOSTIP: ",port.HostIP)
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = port.HostIP

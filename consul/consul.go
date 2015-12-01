@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
-
+  "strconv"
 	"github.com/gliderlabs/registrator/bridge"
 	consulapi "github.com/hashicorp/consul/api"
 )
@@ -25,6 +25,7 @@ func (r *ConsulAdapter) interpolateService(script string, service *bridge.Servic
 type Factory struct{}
 
 func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
+	fmt.Print("URI: ",uri)
 	config := consulapi.DefaultConfig()
 	if uri.Host != "" {
 		config.Address = uri.Host
@@ -42,14 +43,7 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 	if len(containerPrefix)>0 {
 		result.containerPrefix = containerPrefix[0]
 	}
-
 	return result
-	// if len(attributePrefix) > 0 {
-	// 	return &ConsulAdapter{client: client, attributePrefix: attributePrefix[0],containerPrefix: containerPrefix}
-	// } else {
-	// 	return &ConsulAdapter{client: client}
-	//
-	// }
 }
 
 type ConsulAdapter struct {
@@ -77,13 +71,16 @@ func (r *ConsulAdapter) Register(service *bridge.Service) error {
 	registration.Port = service.Port
 	registration.Tags = service.Tags
 	registration.Address = service.IP
+	fmt.Println("Using address: ",registration.Address)
 	registration.Check = r.buildCheck(service)
 	if r.attributePrefix != "" {
 		insertServiceAttributes(r, service)
 	}
-	log.Print("ContainerPrefix: %s",r.containerPrefix)
+	fmt.Print("Container: ",r.containerPrefix)
+	log.Printf("ContainerPrefix...: ",r.containerPrefix)
 	if r.containerPrefix != "" {
 		insertContainerAttributes(r, service)
+
 	}
 	return r.client.Agent().ServiceRegister(registration)
 }
@@ -91,11 +88,15 @@ func (r *ConsulAdapter) Register(service *bridge.Service) error {
 func insertServiceAttributes(r *ConsulAdapter, service *bridge.Service) {
 	kv := r.client.KV()
 	for k, v := range service.Attrs {
-		pair := &consulapi.KVPair{Key: r.attributePrefix + "/" + service.ID + "/" + k, Value: []byte(v)}
+		pair := &consulapi.KVPair{Key: r.attributePrefix + "/" +service.IP+"/" + strconv.Itoa(service.Port)+"/"+ service.ID + "/" + k, Value: []byte(v)}
 		_, err := kv.Put(pair, nil)
 		if err != nil {
 			panic(err)
 		}
+	}
+	_,err := kv.Put(&consulapi.KVPair{Key: r.attributePrefix + "/" +service.IP+"/" + strconv.Itoa(service.Port)+"/"+ service.ID + "/Name",Value: []byte(service.Name)},nil)
+	if err != nil {
+		panic(err)
 	}
 }
 
